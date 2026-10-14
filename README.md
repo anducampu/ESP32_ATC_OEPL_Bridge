@@ -1,6 +1,7 @@
 # ESP32_ATC_OEPL_Bridge
 
-An ESP32 sketch that sends pictures, text and **self-updating stats screens** to e-paper price tags
+An ESP32 sketch that sends pictures, text and **self-updating stats screens** to **electronic shelf
+labels (ESL)**, also known as e-paper price tags,
 running [atc1441](https://github.com/atc1441)'s **ATC_BLE_OEPL** firmware (Bluetooth name `ATC_xxxxxx`).
 
 It does two jobs:
@@ -10,7 +11,7 @@ It does two jobs:
    the computer has no Bluetooth, or its Bluetooth is unreliable.
 2. **Automatic stats refresh.** Plugged into any USB charger, it keeps a saved list of tags and every
    1–60 minutes reads each tag's battery and temperatures, draws its stats screen and uploads it. No
-   computer needed. The tags can't redraw on their own, so something has to send the new screen.
+   computer needed. The ESLs can't redraw on their own, so something has to send the new screen.
 
 The stats screen shows the tag's Bluetooth name (so you can find it), screen and board temperature,
 battery level and the time of the last update. The layout adapts to 2.13″ (250×122) and 4.2″
@@ -20,9 +21,9 @@ battery level and the time of the last update. The layout adapts to 2.13″ (250
 
 - **An ESP32 board with Bluetooth LE**: ESP32, ESP32-S3, ESP32-C3 or ESP32-C6. The **ESP32-S2
   won't work** (no Bluetooth). Tested on a Seeed **XIAO ESP32-S3**.
-- **Tags running ATC_BLE_OEPL.** For Hanshow tags with a Telink chip, atc1441's
+- **ESLs running ATC_BLE_OEPL.** For Hanshow ESLs with a Telink chip, atc1441's
   [web tool](https://atc1441.github.io/ATC_BLE_OEPL_Image_Upload.html) flashes it (UART Flasher tab).
-  Tested on Hanshow 2.13″ and 4.2″ black/white/red tags.
+  Tested on Hanshow 2.13″ and 4.2″ black/white/red ESLs.
 - A **data** USB cable (some cables only charge).
 
 ## Installing

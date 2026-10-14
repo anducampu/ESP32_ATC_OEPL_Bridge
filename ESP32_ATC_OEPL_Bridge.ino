@@ -1,5 +1,5 @@
 /*
- * ESP32_ATC_OEPL_Bridge — ESP32 board → e-paper price tags running atc1441's ATC_BLE_OEPL firmware.
+ * ESP32_ATC_OEPL_Bridge — ESP32 board → electronic shelf labels (ESL) running atc1441's ATC_BLE_OEPL firmware.
  * https://github.com/anducampu/ESP32_ATC_OEPL_Bridge — see README.md. MIT licence; fonts: GNU FreeFont (see LICENSE).
  *
  * Renders formatted text or a stats screen (render.h) and uploads it over BLE using the same protocol as
