@@ -52,7 +52,7 @@ arduino-cli compile --upload -p /dev/ttyUSB0 --fqbn esp32:esp32:esp32:PartitionS
 
 ## Using it with the web page
 
-The companion web page, *E-Paper Uploader*, isn't online yet; its link will be added here. Open it in
+The companion web page, *ESL Uploader*, isn't online yet; its link will be added here. Open it in
 Chrome, Edge, Brave (or Firefox 151+ for USB) and choose **Via ESP32 (USB)** → **Connect** → pick the
 board's port → **Scan**. Then:
 
