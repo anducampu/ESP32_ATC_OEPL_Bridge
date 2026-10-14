@@ -7,7 +7,7 @@ running [atc1441](https://github.com/atc1441)'s **ATC_BLE_OEPL** firmware (Bluet
 It does two jobs:
 
 1. **Bridge for the web page.** Plugged into a computer by USB, it carries uploads from the
-   companion web page (picture, formatted text, stats screen) to the tag over Bluetooth. Handy when
+   companion web page, [ESL Uploader](https://andu.ro/esl-uploader/) (picture, formatted text, stats screen) to the tag over Bluetooth. Handy when
    the computer has no Bluetooth, or its Bluetooth is unreliable.
 2. **Automatic stats refresh.** Plugged into any USB charger, it keeps a saved list of tags and every
    1–60 minutes reads each tag's battery and temperatures, draws its stats screen and uploads it. No
@@ -52,7 +52,7 @@ arduino-cli compile --upload -p /dev/ttyUSB0 --fqbn esp32:esp32:esp32:PartitionS
 
 ## Using it with the web page
 
-The companion web page, *ESL Uploader*, isn't online yet; its link will be added here. Open it in
+The companion web page is **[ESL Uploader](https://andu.ro/esl-uploader/)**. Open it in
 Chrome, Edge, Brave (or Firefox 151+ for USB) and choose **Via ESP32 (USB)** → **Connect** → pick the
 board's port → **Scan**. Then:
 
