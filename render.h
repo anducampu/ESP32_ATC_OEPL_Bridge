@@ -90,13 +90,12 @@ static void drawText(C &c, const TagFont &f, const std::string &t, int x, int ba
 // Pixels of the canvas the panel doesn't show, per edge.
 struct Insets { int t = 0, r = 0, b = 0, l = 0; };
 
-// Hidden strip of a tag's panel, on a canvas turned `rot` quarter turns clockwise from the base
-// landscape canvas (the same convention as the sketch's `rot` and the web page's orientation).
-// 2.13" (buffer 128×250): the panel shows rows 0–121 of the 128, so the bottom 6 rows of the
-// landscape canvas are hidden (measured on a Hanshow 2.13" BWR tag).
-static inline Insets panelHidden(int wb, int hb, int rot) {
-  Insets b;
-  if (wb == 128 && hb == 250) b.b = 6;
+// Turn a panel's hidden strip, given on the base landscape canvas, to the canvas the drawing is
+// made on. That canvas is turned `rot` quarter turns clockwise *onto* the base canvas (the sketch's
+// canvasPixel() and the page's viewToPicture() use the same convention): with rot = 1 the base's
+// bottom strip ends up on the drawn canvas's right edge. Which strip a panel hides is panel data
+// (the sketch's panelBaseHidden(), the page's MODELS[…].hidden), not the renderer's business.
+static inline Insets rotateInsets(Insets b, int rot) {
   Insets p;
   switch (rot & 3) {
     case 1: p.t = b.r; p.r = b.b; p.b = b.l; p.l = b.t; break;
@@ -122,6 +121,17 @@ struct Area {
     if (xb > xa && yb > ya) c.fillRect(xa + ox, ya + oy, xb - xa, yb - ya, col);
   }
 };
+
+// Clear both whole planes, then hand out the visible rectangle of each as a canvas of its own.
+template <class C>
+struct Planes { Area<C> b, r; };
+template <class C>
+static Planes<C> areas(C &blk, C &red, Insets hid) {
+  blk.fillRect(0, 0, blk.width(), blk.height(), 0);
+  red.fillRect(0, 0, red.width(), red.height(), 0);
+  const int w = blk.width() - hid.l - hid.r, h = blk.height() - hid.t - hid.b;
+  return Planes<C>{Area<C>{blk, hid.l, hid.t, w, h}, Area<C>{red, hid.l, hid.t, w, h}};
+}
 
 // ---------------------------------------------------------------- formatted text (spec)
 
@@ -162,13 +172,11 @@ static std::string parseLine(std::string s, LineStyle &st) {
 // Lines separated by '|', each with optional {flags} (see the sketch header). Lines stack top to
 // bottom and the block is centred vertically. Every line always stays on the screen: a line too wide
 // drops to a smaller font, a stack too tall shrinks its biggest lines, and a moved line (@n) is kept
-// inside the top/bottom edges. Draws on the visible area only (see renderSpec below).
+// inside the top/bottom edges. Draws on an already cleared visible area (see renderSpec at the end).
 template <class C>
 static void renderSpecArea(const std::string &spec, C &blk, C &red, bool hasRed) {
   const int W = blk.width(), H = blk.height(), gap = 3;
   const int margin = 4, vm = 2;
-  blk.fillRect(0, 0, W, H, 0);
-  red.fillRect(0, 0, W, H, 0);
 
   struct L { std::string text; LineStyle st; Ink ink; };
   L lines[12];
@@ -284,8 +292,6 @@ static void drawCapCentered(C &c, int f, const std::string &t, int bx, int bw, i
 template <class C>
 static void renderStatsArea(const Stats &s, C &blk, C &red, bool hasRed) {
   const int W = blk.width(), H = blk.height();
-  blk.fillRect(0, 0, W, H, 0);
-  red.fillRect(0, 0, W, H, 0);
   C &accent = hasRed ? red : blk;
 
   const int mx = 4, my = 4;
@@ -380,21 +386,15 @@ static void renderStatsArea(const Stats &s, C &blk, C &red, bool hasRed) {
 
 // ---------------------------------------------------------------- entry points
 
-// Clear the whole canvas, then draw only on the part the panel shows (`hid` from panelHidden()).
+// Clear the whole canvas, then draw only on the part the panel shows (`hid`: see rotateInsets()).
 template <class C>
 static void renderSpec(const std::string &spec, C &blk, C &red, bool hasRed, Insets hid = Insets()) {
-  blk.fillRect(0, 0, blk.width(), blk.height(), 0);
-  red.fillRect(0, 0, red.width(), red.height(), 0);
-  const int w = blk.width() - hid.l - hid.r, h = blk.height() - hid.t - hid.b;
-  Area<C> b{blk, hid.l, hid.t, w, h}, r{red, hid.l, hid.t, w, h};
-  renderSpecArea(spec, b, r, hasRed);
+  Planes<C> a = areas(blk, red, hid);
+  renderSpecArea(spec, a.b, a.r, hasRed);
 }
 
 template <class C>
 static void renderStats(const Stats &s, C &blk, C &red, bool hasRed, Insets hid = Insets()) {
-  blk.fillRect(0, 0, blk.width(), blk.height(), 0);
-  red.fillRect(0, 0, red.width(), red.height(), 0);
-  const int w = blk.width() - hid.l - hid.r, h = blk.height() - hid.t - hid.b;
-  Area<C> b{blk, hid.l, hid.t, w, h}, r{red, hid.l, hid.t, w, h};
-  renderStatsArea(s, b, r, hasRed);
+  Planes<C> a = areas(blk, red, hid);
+  renderStatsArea(s, a.b, a.r, hasRed);
 }

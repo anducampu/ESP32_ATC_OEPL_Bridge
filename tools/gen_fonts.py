@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Generate fonts.h for ESP32_ATC_OEPL_Bridge from GNU FreeFont (the typeface behind Adafruit's
-FreeSans*.h), adding Romanian diacritics, ° and €.
+FreeSans*.h), adding Romanian diacritics, °, ℃ and €.
 
 Sizes are in points at 141 dpi, the same as Adafruit's fontconvert, so {3} (Bold 12 pt) matches
 the FreeSansBold12pt7b look exactly. Glyphs are rendered 1-bit (no anti-aliasing), packed MSB-first

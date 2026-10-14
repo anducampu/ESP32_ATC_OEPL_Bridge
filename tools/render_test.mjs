@@ -1,8 +1,11 @@
 // Web-port twin of render_test.cpp: node tools/render_test.mjs stats 250 128 [name mv board screen updated]
-// Needs the web page's render.js: RENDER_JS=/path/to/render.js (default: ../../oepl_web/render.js).
+// Needs the web page's render.js (and fonts.js next to it): RENDER_JS=/path/to/render.js, default
+// ../../oepl_web/render.js (the layout of the project this sketch comes from).
 import { pathToFileURL } from 'node:url';
-const { Plane, renderStats, renderSpec } = await import(
-  pathToFileURL(process.env.RENDER_JS || new URL('../../oepl_web/render.js', import.meta.url).pathname).href);
+import { resolve } from 'node:path';
+const renderUrl = process.env.RENDER_JS ? pathToFileURL(resolve(process.env.RENDER_JS)).href
+  : new URL('../../oepl_web/render.js', import.meta.url).href;
+const { Plane, renderStats, renderSpec } = await import(renderUrl);
 const args = process.argv.slice(2);
 let hid;
 if (args.length > 3 && args.at(-1).startsWith('hid=')) {

@@ -21,8 +21,9 @@
  *
  * Libraries: NimBLE-Arduino 2.x, Adafruit GFX.
  * Boards: any ESP32 with Bluetooth LE — ESP32, ESP32-S3, ESP32-C3, ESP32-C6 (not the S2). Tested on a
- * Seeed XIAO ESP32-S3. Most boards need Partition Scheme = Huge APP; native-USB boards (S3/C3/C6)
- * need USB CDC On Boot = Enabled. Serial 115200.
+ * Seeed XIAO ESP32-S3. Most boards need Partition Scheme = Huge APP. USB CDC On Boot = Enabled only
+ * if the board's USB socket is wired straight to the chip (XIAO, SuperMini…); leave it Disabled if
+ * the socket goes through a USB-serial chip (CP2102/CH340). Serial 115200.
  *
  * Serial commands (one per line):
  *   scan                       list ATC tags nearby
@@ -339,6 +340,15 @@ static bool canvasPixel(GFXcanvas1 &c, int xb, int yb, int Wb, int Hb, uint8_t r
   return c.getPixel(x, y);
 }
 
+// Rows/columns of the base landscape canvas a panel doesn't show. 2.13" (buffer 128×250): rows
+// 122–127, measured with a test pattern on a Hanshow 2.13" BWR (UC, type 19) — the top edge is
+// visible. Other panels: add them here (and to MODELS in the web page's oepl.js).
+static Insets panelBaseHidden(const DisplayInfo &di) {
+  Insets i;
+  if (di.wb == 128 && di.hb == 250) i.b = 6;
+  return i;
+}
+
 // Connect, read display info, draw with `draw(blk, red, color)` on a canvas sized for the tag and
 // its rotation, pack and upload. `before` runs after connecting (e.g. to read the status).
 static bool drawAndUpload(const String &tag, const std::function<void()> &before,
@@ -363,7 +373,7 @@ static bool drawAndUpload(const String &tag, const std::function<void()> &before
     disconnectTag();
     return false;
   }
-  draw(blk, red, color, panelHidden(di.wb, di.hb, rot));  // draw only where the panel shows
+  draw(blk, red, color, rotateInsets(panelBaseHidden(di), rot));  // draw only where the panel shows
 
   size_t plane = ((size_t)di.wb * di.hb + 7) / 8;
   size_t len = plane * (color ? 2 : 1);
