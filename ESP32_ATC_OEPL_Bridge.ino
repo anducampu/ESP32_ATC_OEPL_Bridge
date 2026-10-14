@@ -342,7 +342,7 @@ static bool canvasPixel(GFXcanvas1 &c, int xb, int yb, int Wb, int Hb, uint8_t r
 // Connect, read display info, draw with `draw(blk, red, color)` on a canvas sized for the tag and
 // its rotation, pack and upload. `before` runs after connecting (e.g. to read the status).
 static bool drawAndUpload(const String &tag, const std::function<void()> &before,
-                          const std::function<void(GFXcanvas1 &, GFXcanvas1 &, bool)> &draw) {
+                          const std::function<void(GFXcanvas1 &, GFXcanvas1 &, bool, Insets)> &draw) {
   if (!connectTag(tag)) return false;
   DisplayInfo di;
   if (!readDisplayInfo(di)) {
@@ -363,7 +363,7 @@ static bool drawAndUpload(const String &tag, const std::function<void()> &before
     disconnectTag();
     return false;
   }
-  draw(blk, red, color);
+  draw(blk, red, color, panelHidden(di.wb, di.hb, rot));  // draw only where the panel shows
 
   size_t plane = ((size_t)di.wb * di.hb + 7) / 8;
   size_t len = plane * (color ? 2 : 1);
@@ -393,7 +393,9 @@ static bool drawAndUpload(const String &tag, const std::function<void()> &before
 
 static void cmdSend(const String &tag, const String &spec) {
   std::string s(spec.c_str());
-  drawAndUpload(tag, [] {}, [&](GFXcanvas1 &blk, GFXcanvas1 &red, bool color) { renderSpec(s, blk, red, color); });
+  drawAndUpload(tag, [] {}, [&](GFXcanvas1 &blk, GFXcanvas1 &red, bool color, Insets hid) {
+    renderSpec(s, blk, red, color, hid);
+  });
 }
 
 // ---------------------------------------------------------------- stats screen
@@ -441,7 +443,7 @@ static bool cmdStats(const String &tag) {
         Serial.printf("STATS %s %d %d %d %s\n", st.name.c_str(), st.mv, st.boardC, st.screenC,
                       st.updated.empty() ? "--" : st.updated.c_str());
       },
-      [&](GFXcanvas1 &blk, GFXcanvas1 &red, bool color) { renderStats(st, blk, red, color); });
+      [&](GFXcanvas1 &blk, GFXcanvas1 &red, bool color, Insets hid) { renderStats(st, blk, red, color, hid); });
   return ok;
 }
 

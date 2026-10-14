@@ -85,6 +85,44 @@ static void drawText(C &c, const TagFont &f, const std::string &t, int x, int ba
   }
 }
 
+// ---------------------------------------------------------------- visible area
+
+// Pixels of the canvas the panel doesn't show, per edge.
+struct Insets { int t = 0, r = 0, b = 0, l = 0; };
+
+// Hidden strip of a tag's panel, on a canvas turned `rot` quarter turns clockwise from the base
+// landscape canvas (the same convention as the sketch's `rot` and the web page's orientation).
+// 2.13" (buffer 128×250): the panel shows rows 0–121 of the 128, so the bottom 6 rows of the
+// landscape canvas are hidden (measured on a Hanshow 2.13" BWR tag).
+static inline Insets panelHidden(int wb, int hb, int rot) {
+  Insets b;
+  if (wb == 128 && hb == 250) b.b = 6;
+  Insets p;
+  switch (rot & 3) {
+    case 1: p.t = b.r; p.r = b.b; p.b = b.l; p.l = b.t; break;
+    case 2: p.t = b.b; p.r = b.l; p.b = b.t; p.l = b.r; break;
+    case 3: p.t = b.l; p.r = b.t; p.b = b.r; p.l = b.b; break;
+    default: p = b; break;
+  }
+  return p;
+}
+
+// A rectangle of a canvas that behaves like a canvas of its own (clipped, offset).
+template <class C>
+struct Area {
+  C &c;
+  int ox, oy, w, h;
+  int width() const { return w; }
+  int height() const { return h; }
+  void drawPixel(int x, int y, uint16_t col) {
+    if (x >= 0 && y >= 0 && x < w && y < h) c.drawPixel(x + ox, y + oy, col);
+  }
+  void fillRect(int x, int y, int fw, int fh, uint16_t col) {
+    int xa = x < 0 ? 0 : x, ya = y < 0 ? 0 : y, xb = x + fw > w ? w : x + fw, yb = y + fh > h ? h : y + fh;
+    if (xb > xa && yb > ya) c.fillRect(xa + ox, ya + oy, xb - xa, yb - ya, col);
+  }
+};
+
 // ---------------------------------------------------------------- formatted text (spec)
 
 struct LineStyle {
@@ -124,12 +162,11 @@ static std::string parseLine(std::string s, LineStyle &st) {
 // Lines separated by '|', each with optional {flags} (see the sketch header). Lines stack top to
 // bottom and the block is centred vertically. Every line always stays on the screen: a line too wide
 // drops to a smaller font, a stack too tall shrinks its biggest lines, and a moved line (@n) is kept
-// inside the top/bottom edges.
+// inside the top/bottom edges. Draws on the visible area only (see renderSpec below).
 template <class C>
-static void renderSpec(const std::string &spec, C &blk, C &red, bool hasRed) {
+static void renderSpecArea(const std::string &spec, C &blk, C &red, bool hasRed) {
   const int W = blk.width(), H = blk.height(), gap = 3;
-  // The 2.13" panel hides 6 of its 128 buffer rows: keep that axis 6 px clear.
-  const int margin = W == 128 ? 6 : 4, vm = H == 128 ? 6 : 2;
+  const int margin = 4, vm = 2;
   blk.fillRect(0, 0, W, H, 0);
   red.fillRect(0, 0, W, H, 0);
 
@@ -245,14 +282,13 @@ static void drawCapCentered(C &c, int f, const std::string &t, int bx, int bw, i
 // whole screen — side by side on a landscape canvas, stacked on a portrait one — and battery + last
 // update along the bottom, all on one centre line.
 template <class C>
-static void renderStats(const Stats &s, C &blk, C &red, bool hasRed) {
+static void renderStatsArea(const Stats &s, C &blk, C &red, bool hasRed) {
   const int W = blk.width(), H = blk.height();
   blk.fillRect(0, 0, W, H, 0);
   red.fillRect(0, 0, W, H, 0);
   C &accent = hasRed ? red : blk;
 
-  // The 2.13" panel shows only 122 of its 128 buffer rows: keep 6 px clear on that axis.
-  const int mx = W == 128 ? 6 : 4, my = H == 128 ? 6 : 4;
+  const int mx = 4, my = 4;
   const int x0 = mx, w = W - 2 * mx, h = H - 2 * my;
   const int gap = h >= 200 ? 6 : 3;
   const int barH = my + (h * 26 + 50) / 100, fh = (h * 18 + 50) / 100;
@@ -340,4 +376,25 @@ static void renderStats(const Stats &s, C &blk, C &red, bool hasRed) {
   int t = h >= 200 ? 3 : 2;  // divider between the two cells, exactly as tall as the text
   if (landscape) blk.fillRect(x0 + (w - t) / 2, top + inkTop, t, inkBot - inkTop, 1);
   else blk.fillRect(x0 + 4, top + cellInk + gap - t / 2, w - 8, t, 1);
+}
+
+// ---------------------------------------------------------------- entry points
+
+// Clear the whole canvas, then draw only on the part the panel shows (`hid` from panelHidden()).
+template <class C>
+static void renderSpec(const std::string &spec, C &blk, C &red, bool hasRed, Insets hid = Insets()) {
+  blk.fillRect(0, 0, blk.width(), blk.height(), 0);
+  red.fillRect(0, 0, red.width(), red.height(), 0);
+  const int w = blk.width() - hid.l - hid.r, h = blk.height() - hid.t - hid.b;
+  Area<C> b{blk, hid.l, hid.t, w, h}, r{red, hid.l, hid.t, w, h};
+  renderSpecArea(spec, b, r, hasRed);
+}
+
+template <class C>
+static void renderStats(const Stats &s, C &blk, C &red, bool hasRed, Insets hid = Insets()) {
+  blk.fillRect(0, 0, blk.width(), blk.height(), 0);
+  red.fillRect(0, 0, red.width(), red.height(), 0);
+  const int w = blk.width() - hid.l - hid.r, h = blk.height() - hid.t - hid.b;
+  Area<C> b{blk, hid.l, hid.t, w, h}, r{red, hid.l, hid.t, w, h};
+  renderStatsArea(s, b, r, hasRed);
 }

@@ -1,6 +1,7 @@
 // Host test for render.h: draws the stats screen / a text spec and prints the planes as text
 // ("." white, "#" black, "r" red), one row per line. Compare with tools/render_test.mjs (web port).
 //   g++ -std=c++17 -I.. tools/render_test.cpp -o /tmp/render_test && /tmp/render_test stats 250 128
+// An optional last argument hid=t,r,b,l passes the panel's hidden strip (see panelHidden()).
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -20,6 +21,11 @@ struct Canvas {
 };
 
 int main(int argc, char **argv) {
+  Insets hid;
+  if (argc > 4 && !strncmp(argv[argc - 1], "hid=", 4)) {
+    sscanf(argv[argc - 1] + 4, "%d,%d,%d,%d", &hid.t, &hid.r, &hid.b, &hid.l);
+    argc--;
+  }
   if (argc < 4) return 1;
   int W = atoi(argv[2]), H = atoi(argv[3]);
   Canvas blk(W, H), red(W, H);
@@ -30,9 +36,9 @@ int main(int argc, char **argv) {
     s.boardC = argc > 6 ? atoi(argv[6]) : 14;
     s.screenC = argc > 7 ? atoi(argv[7]) : 18;
     s.updated = argc > 8 ? argv[8] : "14:37";
-    renderStats(s, blk, red, true);
+    renderStats(s, blk, red, true, hid);
   } else {
-    renderSpec(argv[4], blk, red, true);
+    renderSpec(argv[4], blk, red, true, hid);
   }
   for (int y = 0; y < H; y++) {
     for (int x = 0; x < W; x++) putchar(red.d[y * W + x] ? 'r' : blk.d[y * W + x] ? '#' : '.');
