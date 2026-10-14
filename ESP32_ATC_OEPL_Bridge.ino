@@ -1,6 +1,6 @@
 /*
  * ESP32_ATC_OEPL_Bridge — ESP32 board → e-paper price tags running atc1441's ATC_BLE_OEPL firmware.
- * See README.md. MIT licence; fonts: GNU FreeFont (see LICENSE).
+ * https://github.com/anducampu/ESP32_ATC_OEPL_Bridge — see README.md. MIT licence; fonts: GNU FreeFont (see LICENSE).
  *
  * Renders formatted text or a stats screen (render.h) and uploads it over BLE using the same protocol as
  * https://atc1441.github.io/ATC_BLE_OEPL_Image_Upload.html (service/characteristic 0x1337):
@@ -42,7 +42,7 @@
  *   wifi <ssid> <pass> | off   optional: sync the clock over WiFi (NTP) at start and every 6 h
  *
  * <spec>: lines separated by '|'. Each line may start with {flags}:
- *   1..9  font (FreeSans, with Romanian ăâîșț ĂÂÎȘȚ, ° and €):
+ *   1..9  font (FreeSans, with Romanian ăâîșț ĂÂÎȘȚ, °, ℃ and €):
  *         1 = Sans 7pt, 2 = Sans 9pt, 3 = Bold 12pt, 4 = Bold 18pt, 5 = Bold 24pt,
  *         6 = Bold 32pt, 7 = Bold 40pt, 8 = Bold 52pt, 9 = Bold 64pt
  *         A line too wide for the screen automatically drops to the largest size that fits.

@@ -98,7 +98,7 @@ One per line, 115200 baud. The web page uses the same commands.
 Lines separated by `|`; each may start with `{flags}`:
 
 - `1`…`9`: size. 7, 9 pt regular, then 12, 18, 24, 32, 40, 52, 64 pt bold (FreeSans, including
-  Romanian ăâîșț, ° and €)
+  Romanian ăâîșț, °, ℃ and €)
 - `r` red, `b` black, `i` white on a full-width bar
 - `<` `=` `>`: align left / centre / right
 - `@n` / `@-n`: move the line n pixels down / up

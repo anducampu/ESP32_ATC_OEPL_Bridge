@@ -14,7 +14,7 @@
 // UTF-8 → font codes: ASCII stays, extra glyphs follow 0x7F in the order of EXTRA in
 // tools/gen_fonts.py. Cedilla ş/ţ (common on old keyboards) map to the correct comma-below forms.
 static const uint16_t kExtraChars[] = {0x0102, 0x0103, 0x00C2, 0x00E2, 0x00CE, 0x00EE,
-                                       0x0218, 0x0219, 0x021A, 0x021B, 0x00B0, 0x20AC};
+                                       0x0218, 0x0219, 0x021A, 0x021B, 0x00B0, 0x20AC, 0x2103};
 
 static uint8_t codeFor(uint32_t cp) {
   if (cp >= 0x20 && cp < 0x7F) return cp;
@@ -227,7 +227,7 @@ static int fitSample(const char *sampleUtf8, int maxW, int maxH, int maxFont) {
 
 static std::string tempText(int c) {
   if (c == -999) return "--";
-  return std::to_string(c) + "\xC2\xB0" "C";  // °C
+  return std::to_string(c) + "\xE2\x84\x83";  // ℃ (one glyph, tighter than "°C")
 }
 
 // Height of capital letters / digits for font f (top of 'H' to the baseline).
@@ -308,7 +308,7 @@ static void renderStats(const Stats &s, C &blk, C &red, bool hasRed) {
   const int cellW = landscape ? (w - gap) / 2 : w, cellH = landscape ? avail : (avail - gap) / 2;
   const int lh = (cellH * 24 + 50) / 100;
   const int lf = fitSample("SCREEN", cellW, lh, 4);
-  const int tf = fitSample("88\xC2\xB0" "C", cellW - 4, cellH - lh - 2, 9);  // shrinks for e.g. -12°C
+  const int tf = fitSample("88\xE2\x84\x83", cellW - 4, cellH - lh - 2, 9);  // shrinks for e.g. -12°C
   const int lc = capHeight(lf), vc = capHeight(tf), lv = vc / 5 < 3 ? 3 : vc / 5;
   const int cellInk = lc + lv + vc;
   const char *labels[2] = {"SCREEN", "BOARD"};

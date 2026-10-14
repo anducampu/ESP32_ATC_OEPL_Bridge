@@ -28,7 +28,7 @@ FONTS = [
 
 # Code 0x20..0x7E is ASCII; extra glyphs follow from 0x7F in this order. The sketch's UTF-8
 # decoder must use the same table (see EXTRA_CHARS there).
-EXTRA = "ĂăÂâÎîȘșȚț°€"
+EXTRA = "ĂăÂâÎîȘșȚț°€℃"
 CHARS = [chr(c) for c in range(0x20, 0x7F)] + list(EXTRA)
 
 
