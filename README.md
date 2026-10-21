@@ -9,9 +9,10 @@ It does two jobs:
 1. **Bridge for the web page.** Plugged into a computer by USB, it carries uploads from the
    companion web page, [ESL Uploader](https://andu.ro/esl-uploader/) (picture, formatted text, stats screen) to the tag over Bluetooth. Handy when
    the computer has no Bluetooth, or its Bluetooth is unreliable.
-2. **Automatic stats refresh.** Plugged into any USB charger, it keeps a saved list of tags and every
-   1–60 minutes reads each tag's battery and temperatures, draws its stats screen and uploads it. No
-   computer needed. The ESLs can't redraw on their own, so something has to send the new screen.
+2. **Automatic stats refresh.** It keeps a saved list of tags and every 1–60 minutes reads each tag's
+   battery and temperatures, draws its stats screen and uploads it, even with the page closed, as long
+   as it stays plugged into the computer (which sets its clock). The ESLs can't redraw on their own,
+   so something has to send the new screen.
 
 The stats screen shows the tag's Bluetooth name (so you can find it), screen and board temperature,
 battery level and the time of the last update. The layout adapts to 2.13″ (250×122) and 4.2″
@@ -21,7 +22,8 @@ battery level and the time of the last update. The layout adapts to 2.13″ (250
 
 - **An ESP32 board with Bluetooth LE**: ESP32, ESP32-S3, ESP32-C3 or ESP32-C6. The **ESP32-S2
   won't work** (no Bluetooth). Tested on a Seeed **XIAO ESP32-C3** (plenty for
-  this job, and the cheapest) and a **XIAO ESP32-S3**.
+  this job, and the cheapest) and a **XIAO ESP32-S3**. The XIAO ESP32-C3 has **no antenna on the board**:
+  attach the small U.FL antenna that comes with it, or Bluetooth reaches only a few centimetres.
 - **ESLs running ATC_BLE_OEPL.** For Hanshow ESLs with a Telink chip, atc1441's
   [web tool](https://atc1441.github.io/ATC_BLE_OEPL_Image_Upload.html) flashes it (UART Flasher tab).
   Tested on Hanshow 2.13″ and 4.2″ black/white/red ESLs.
@@ -61,8 +63,8 @@ board's port → **Scan**. Then:
 - **Stats screen**: the ESP32 reads the tag and draws the screen itself (`stats` command). The same
   drawing code runs in the page, so the preview matches the tag pixel for pixel.
 - **Automatic refresh**: tick *Keep this tag's stats screen up to date* and pick the interval. The
-  list and interval are saved on the ESP32 and survive a power cut. Then move it to any USB charger
-  within a few metres of the tags.
+  list and interval are saved on the ESP32 and survive a power cut. You can close the page: the ESP32
+  keeps refreshing while it stays plugged into the computer.
 
 Every refresh redraws the whole screen (~15 s on black/white/red tags), and that is what uses the
 tag's battery. 10 minutes or more is a good balance.
@@ -137,7 +139,8 @@ only on the visible 250×122.
   restart when the port opens; the page waits for them, so give it a few seconds. Still nothing:
   check the *USB CDC On Boot* setting above and that this sketch is on the board.
 - **A tag isn't found**: tags don't advertise while they redraw (~15 s), so scan again. Keep the tag
-  within a few metres; small boards have short-range antennas. A tag takes one connection at a time.
+  within a few metres; small boards have short-range antennas. On a XIAO ESP32-C3 check that its
+  U.FL antenna is attached. A tag takes one connection at a time.
 
 ## Files
 

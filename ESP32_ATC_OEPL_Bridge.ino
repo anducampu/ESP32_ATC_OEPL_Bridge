@@ -21,7 +21,7 @@
  *
  * Libraries: NimBLE-Arduino 2.x, Adafruit GFX.
  * Boards: any ESP32 with Bluetooth LE — ESP32, ESP32-S3, ESP32-C3, ESP32-C6 (not the S2). Tested on a
- * Seeed XIAO ESP32-C3 and XIAO ESP32-S3; fits the default partition scheme (~850 KB). USB CDC On Boot = Enabled only
+ * Seeed XIAO ESP32-C3 (attach its U.FL antenna: it has none on board) and XIAO ESP32-S3; fits the default partition scheme (~850 KB). USB CDC On Boot = Enabled only
  * if the board's USB socket is wired straight to the chip (XIAO, SuperMini…); leave it Disabled if
  * the socket goes through a USB-serial chip (CP2102/CH340). Serial 115200.
  *
@@ -317,9 +317,20 @@ static bool uploadImage(const uint8_t *img, size_t imgLen, bool color) {
 
 // ---------------------------------------------------------------- drawing → tag
 
-// Per-tag rotation, stored in NVS as "r_<name>" (clockwise quarter turns of the drawn text).
+// Per-tag rotation (clockwise quarter turns of the drawn text), stored in NVS as "r_" + the last 6 hex
+// digits of the name or MAC: ATC_9B0442 and 34:66:50:9b:04:42 share "r_9B0442", and the key stays
+// within NVS's 15 characters. Older versions used "r_<name>": still read, removed on the next rot.
+static String rotKey(const String &tag) {
+  String hex;
+  for (char c : tag)
+    if (isxdigit((unsigned char)c)) hex += (char)toupper((unsigned char)c);
+  return "r_" + hex.substring(hex.length() > 6 ? hex.length() - 6 : 0);
+}
+
 static uint8_t tagRotation(const String &name) {
-  return prefs.getUChar(("r_" + name).c_str(), 0) & 3;
+  String key = rotKey(name), old = "r_" + name;
+  if (prefs.isKey(key.c_str())) return prefs.getUChar(key.c_str(), 0) & 3;
+  return old.length() <= 15 && prefs.isKey(old.c_str()) ? prefs.getUChar(old.c_str(), 0) & 3 : 0;
 }
 
 // Map a buffer pixel (xb, yb) back to the drawing canvas, honouring the panel's quarter turn
@@ -647,8 +658,8 @@ void setup() {
   Serial.setRxBufferSize(16384);
   Serial.begin(115200);
 #if ARDUINO_USB_CDC_ON_BOOT
-  // Native USB (S3/C3/C6…): never stall when nobody reads the port (board on a charger or page
-  // closed): give up on a full output buffer after 20 ms. A reading host drains it much faster.
+  // Native USB (S3/C3/C6…): never stall when nobody reads the port (page closed,
+  // nobody listening): give up on a full output buffer after 20 ms. A reading host drains it much faster.
   // Boards with a USB-UART chip (CP2102, CH340) don't need this: a UART never blocks.
   Serial.setTxTimeoutMs(20);
 #endif
@@ -663,6 +674,9 @@ void setup() {
   tzString = prefs.getString("tz", "EET-2EEST,M3.5.0/3,M10.5.0/4");
   autoMinutes = prefs.getUShort("auto_min", 0);
   autoTags = prefs.getString("auto_tags", "");
+  // Older versions could save a WiFi network and password; this one has no WiFi, so erase them.
+  if (prefs.isKey("wifi_ssid")) prefs.remove("wifi_ssid");
+  if (prefs.isKey("wifi_pass")) prefs.remove("wifi_pass");
   applyTz();
   Serial.println("\nESP32_ATC_OEPL_Bridge ready. Commands: scan | target | info | img | rot | send | to | stats | auto | time | tz");
   Serial.printf("Target: %s\n", targetTag.length() ? targetTag.c_str() : "(first ATC tag found)");
@@ -698,7 +712,11 @@ void loop() {
     String name = s2 < 0 ? arg : arg.substring(0, s2);
     if (!name.length()) Serial.println("usage: rot <name> [0-3]");
     else {
-      if (s2 >= 0) prefs.putUChar(("r_" + name).c_str(), arg.substring(s2 + 1).toInt() & 3);
+      if (s2 >= 0) {
+        String old = "r_" + name;
+        if (old.length() <= 15 && prefs.isKey(old.c_str())) prefs.remove(old.c_str());
+        prefs.putUChar(rotKey(name).c_str(), arg.substring(s2 + 1).toInt() & 3);
+      }
       Serial.printf("%s rotation = %u x 90 deg CW\n", name.c_str(), tagRotation(name));
     }
   } else if (cmd == "info") cmdInfo(arg);
