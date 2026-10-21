@@ -21,7 +21,7 @@
  *
  * Libraries: NimBLE-Arduino 2.x, Adafruit GFX.
  * Boards: any ESP32 with Bluetooth LE — ESP32, ESP32-S3, ESP32-C3, ESP32-C6 (not the S2). Tested on a
- * Seeed XIAO ESP32-S3. Most boards need Partition Scheme = Huge APP. USB CDC On Boot = Enabled only
+ * Seeed XIAO ESP32-C3 and XIAO ESP32-S3; fits the default partition scheme (~850 KB). USB CDC On Boot = Enabled only
  * if the board's USB socket is wired straight to the chip (XIAO, SuperMini…); leave it Disabled if
  * the socket goes through a USB-serial chip (CP2102/CH340). Serial 115200.
  *
@@ -40,7 +40,6 @@
  *                              screen of those tags every <min> minutes, default 10)
  *   time <unix-utc>            set the clock (the web page does this when it connects)
  *   tz <POSIX TZ>              time zone, default EET-2EEST,M3.5.0/3,M10.5.0/4 (Romania)
- *   wifi <ssid> <pass> | off   optional: sync the clock over WiFi (NTP) at start and every 6 h
  *
  * <spec>: lines separated by '|'. Each line may start with {flags}:
  *   1..9  font (FreeSans, with Romanian ăâîșț ĂÂÎȘȚ, °, ℃ and €):
@@ -57,7 +56,6 @@
 #include <NimBLEDevice.h>
 #include <Adafruit_GFX.h>
 #include <Preferences.h>
-#include <WiFi.h>
 #include <time.h>
 #include <sys/time.h>
 #include <functional>
@@ -457,36 +455,13 @@ static bool cmdStats(const String &tag) {
   return ok;
 }
 
-// ---------------------------------------------------------------- clock (page or WiFi/NTP)
+// ---------------------------------------------------------------- clock (set by the computer)
 
-static String tzString, wifiSsid, wifiPass;
-static uint32_t lastNtp = 0;
-static bool ntpTried = false;
+static String tzString;
 
 static void applyTz() {
   setenv("TZ", tzString.c_str(), 1);
   tzset();
-}
-
-// Connect to WiFi just long enough to set the clock, then switch the radio off again.
-static void ntpSync() {
-  ntpTried = true;
-  lastNtp = millis();
-  if (!wifiSsid.length()) return;
-  Serial.printf("WiFi: syncing time via %s...\n", wifiSsid.c_str());
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(wifiSsid.c_str(), wifiPass.c_str());
-  uint32_t t0 = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - t0 < 15000) delay(100);
-  if (WiFi.status() == WL_CONNECTED) {
-    configTzTime(tzString.c_str(), "pool.ntp.org", "time.google.com");
-    t0 = millis();
-    while (!timeKnown() && millis() - t0 < 8000) delay(100);
-  }
-  if (timeKnown()) Serial.printf("WiFi: time is %s\n", nowText().c_str());
-  else Serial.println("WiFi: time sync failed.");
-  WiFi.disconnect(true);
-  WiFi.mode(WIFI_OFF);
 }
 
 // ---------------------------------------------------------------- auto refresh
@@ -686,12 +661,10 @@ void setup() {
   prefs.begin("oepl", false);
   targetTag = prefs.getString("target", "");
   tzString = prefs.getString("tz", "EET-2EEST,M3.5.0/3,M10.5.0/4");
-  wifiSsid = prefs.getString("wifi_ssid", "");
-  wifiPass = prefs.getString("wifi_pass", "");
   autoMinutes = prefs.getUShort("auto_min", 0);
   autoTags = prefs.getString("auto_tags", "");
   applyTz();
-  Serial.println("\nESP32_ATC_OEPL_Bridge ready. Commands: scan | target | info | img | rot | send | to | stats | auto | time | tz | wifi");
+  Serial.println("\nESP32_ATC_OEPL_Bridge ready. Commands: scan | target | info | img | rot | send | to | stats | auto | time | tz");
   Serial.printf("Target: %s\n", targetTag.length() ? targetTag.c_str() : "(first ATC tag found)");
   printAuto();
   // Give a connected page a few seconds to set the clock before the first auto refresh.
@@ -699,8 +672,6 @@ void setup() {
 }
 
 void loop() {
-  // Time: sync over WiFi at start and every 6 h (if configured).
-  if (wifiSsid.length() && (!ntpTried || millis() - lastNtp > 6UL * 3600 * 1000)) ntpSync();
   if (autoMinutes && autoTags.length() && (int32_t)(millis() - nextAuto) >= 0) {
     nextAuto = millis() + autoMinutes * 60000UL;
     runAuto();
@@ -746,16 +717,5 @@ void loop() {
   } else if (cmd == "tz") {  // tz <POSIX TZ>, e.g. EET-2EEST,M3.5.0/3,M10.5.0/4
     if (arg.length()) { tzString = arg; prefs.putString("tz", tzString); applyTz(); }
     Serial.printf("TZ %s\n", tzString.c_str());
-  } else if (cmd == "wifi") {  // wifi <ssid> <password> | wifi off
-    if (arg == "off") { wifiSsid = wifiPass = ""; }
-    else {
-      int s2 = arg.indexOf(' ');
-      wifiSsid = s2 < 0 ? arg : arg.substring(0, s2);
-      wifiPass = s2 < 0 ? "" : arg.substring(s2 + 1);
-    }
-    prefs.putString("wifi_ssid", wifiSsid);
-    prefs.putString("wifi_pass", wifiPass);
-    Serial.printf("WIFI %s\n", wifiSsid.length() ? wifiSsid.c_str() : "off");
-    if (wifiSsid.length()) ntpSync();
   } else Serial.println("Unknown command.");
 }

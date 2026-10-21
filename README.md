@@ -20,7 +20,8 @@ battery level and the time of the last update. The layout adapts to 2.13″ (250
 ## What you need
 
 - **An ESP32 board with Bluetooth LE**: ESP32, ESP32-S3, ESP32-C3 or ESP32-C6. The **ESP32-S2
-  won't work** (no Bluetooth). Tested on a Seeed **XIAO ESP32-S3**.
+  won't work** (no Bluetooth). Tested on a Seeed **XIAO ESP32-C3** (plenty for
+  this job, and the cheapest) and a **XIAO ESP32-S3**.
 - **ESLs running ATC_BLE_OEPL.** For Hanshow ESLs with a Telink chip, atc1441's
   [web tool](https://atc1441.github.io/ATC_BLE_OEPL_Image_Upload.html) flashes it (UART Flasher tab).
   Tested on Hanshow 2.13″ and 4.2″ black/white/red ESLs.
@@ -34,9 +35,8 @@ battery level and the time of the last update. The layout adapts to 2.13″ (250
    `ESP32_ATC_OEPL_Bridge` (a GitHub ZIP unpacks as `ESP32_ATC_OEPL_Bridge-main`: rename it, or let
    the IDE move the sketch). `render.h` and `fonts.h` must stay next to the `.ino`.
 4. *Tools* menu:
-   - **Board**: yours, e.g. *XIAO_ESP32S3*, *ESP32 Dev Module*, *ESP32C3 Dev Module*.
-   - **Partition Scheme → Huge APP**. The sketch is ~1.4 MB, too big for the default 1.2 MB on most
-     boards. The XIAO ESP32-S3 profile already has enough room.
+   - **Board**: yours, e.g. *XIAO_ESP32C3*, *XIAO_ESP32S3*, *ESP32 Dev Module*, *ESP32C3 Dev Module*.
+   - **Partition Scheme**: leave the default. The sketch is ~850 KB and fits every board's 1.2 MB.
    - **USB CDC On Boot**: *Enabled* if the board's USB socket is wired straight to the ESP32 chip
      (XIAO ESP32-S3/C3/C6, "SuperMini" boards, the USB port of an S3/C3 DevKit). *Disabled* if it
      goes through a USB-serial chip (CP2102, CH340: most classic ESP32 boards, the UART port of
@@ -46,8 +46,9 @@ battery level and the time of the last update. The layout adapts to 2.13″ (250
 With `arduino-cli`:
 
 ```sh
+arduino-cli compile --upload -p /dev/ttyACM0 --fqbn esp32:esp32:XIAO_ESP32C3 .
 arduino-cli compile --upload -p /dev/ttyACM0 --fqbn esp32:esp32:XIAO_ESP32S3 .
-arduino-cli compile --upload -p /dev/ttyUSB0 --fqbn esp32:esp32:esp32:PartitionScheme=huge_app .
+arduino-cli compile --upload -p /dev/ttyUSB0 --fqbn esp32:esp32:esp32 .
 ```
 
 ## Using it with the web page
@@ -68,15 +69,10 @@ tag's battery. 10 minutes or more is a good balance.
 
 ### The clock
 
-The board has no battery-backed clock. The web page sets it (and the time zone) every time it
-connects. After a power cut the stats screens show `Updated --:--` until the page connects again,
-unless you give the board WiFi once:
-
-```
-wifi YourNetworkName YourPassword
-```
-
-It then syncs over NTP at start-up and every 6 hours, and switches WiFi off in between.
+The board has no battery-backed clock and never uses WiFi: it only bridges USB to Bluetooth. The
+computer it's plugged into sets the clock with `time` (and `tz`): the web page does it every time it
+connects; a script driving the board should do it at start-up and every few hours. After a power cut
+the stats screens show `Updated --:--` until the computer sets the clock again.
 
 ## Serial commands
 
@@ -96,7 +92,6 @@ One per line, 115200 baud. The web page uses the same commands.
 | `auto add <tag>` / `auto del <tag>` / `auto off` | Edit / stop the list |
 | `time <unix-utc>` | Set the clock |
 | `tz <POSIX TZ>` | Time zone (default Romania: `EET-2EEST,M3.5.0/3,M10.5.0/4`) |
-| `wifi <ssid> <password>` / `wifi off` | Optional NTP time sync |
 
 ### Formatted text (`<spec>`)
 
@@ -143,7 +138,6 @@ only on the visible 250×122.
   check the *USB CDC On Boot* setting above and that this sketch is on the board.
 - **A tag isn't found**: tags don't advertise while they redraw (~15 s), so scan again. Keep the tag
   within a few metres; small boards have short-range antennas. A tag takes one connection at a time.
-- **Sketch too big**: set *Partition Scheme → Huge APP*.
 
 ## Files
 
