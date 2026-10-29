@@ -351,10 +351,12 @@ static bool canvasPixel(GFXcanvas1 &c, int xb, int yb, int Wb, int Hb, uint8_t r
 
 // Rows/columns of the base landscape canvas a panel doesn't show. 2.13" (buffer 128×250): rows
 // 122–127, measured with a test pattern on a Hanshow 2.13" BWR (UC, type 19) — the top edge is
-// visible. Other panels: add them here (and to MODELS in the web page's oepl.js).
+// visible. 2.13" SSD (type 16, buffer 128×256): columns 0–5 and rows 122–127 hidden, so the same
+// 250×122 shows. Other panels: add them here (and to MODELS in the web page's oepl.js).
 static Insets panelBaseHidden(const DisplayInfo &di) {
   Insets i;
   if (di.wb == 128 && di.hb == 250) i.b = 6;
+  if (di.wb == 128 && di.hb == 256) i.b = 6, i.l = 6;
   return i;
 }
 

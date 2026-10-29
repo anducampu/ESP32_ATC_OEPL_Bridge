@@ -15,8 +15,8 @@ It does two jobs:
    so something has to send the new screen.
 
 The stats screen shows the tag's Bluetooth name (so you can find it), screen and board temperature,
-battery level and the time of the last update. The layout adapts to 2.13″ (250×122) and 4.2″
-(400×300) tags, landscape or portrait.
+battery level and the time of the last update. The layout adapts to 2.13″ (250×122), 4.2″
+(400×300) and 5.83″ (648×480) tags, landscape or portrait.
 
 ## What you need
 
@@ -26,7 +26,7 @@ battery level and the time of the last update. The layout adapts to 2.13″ (250
   attach the small U.FL antenna that comes with it, or Bluetooth reaches only a few centimetres.
 - **ESLs running ATC_BLE_OEPL.** For Hanshow ESLs with a Telink chip, atc1441's
   [web tool](https://atc1441.github.io/ATC_BLE_OEPL_Image_Upload.html) flashes it (UART Flasher tab).
-  Tested on Hanshow 2.13″ and 4.2″ black/white/red ESLs.
+  Tested on Hanshow 2.13″ (black/white and black/white/red), 4.2″ and 5.83″ black/white/red ESLs.
 - A **data** USB cable (some cables only charge).
 
 ## Installing
@@ -123,9 +123,11 @@ Service and characteristic `0x1337`, the same protocol as atc1441's
 - `0016 0000` → `00D1` + battery mV, raw ADC, chip temperature, panel temperature
 
 Image buffer: black plane, then red plane (1 = ink), row-major, MSB first. The 2.13″ panel shows its
-128×250 buffer turned 90° clockwise and hides 6 of the 128 rows: the bottom 6 of the landscape view
-(measured on a black/white/red tag; `panelBaseHidden()` in the sketch). Text and stats are drawn
-only on the visible 250×122.
+buffer turned 90° clockwise. With the UC controller (screen type 19) the buffer is 128×250 and the
+bottom 6 rows of the landscape view are hidden; with the SSD controller (screen type 16) it is 128×256
+and the left 6 columns and bottom 6 rows are hidden (measured; `panelBaseHidden()` in the sketch).
+Both show 250×122, and text and stats are drawn only there. The 4.2″ (400×300) and 5.83″ (648×480)
+buffers are shown as they are; give those tags `rot <tag> 1` for landscape (the web page does it).
 
 ## Troubleshooting
 
