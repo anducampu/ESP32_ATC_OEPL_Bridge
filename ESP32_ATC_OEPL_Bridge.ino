@@ -169,12 +169,31 @@ static void disconnectTag() {
   chr = nullptr;
 }
 
+static NimBLEAddress lastAddr;  // the tag of the last connectTag(), for reconnectTag()
+
+static bool openLink(const NimBLEAddress &addr);
+
 static bool connectTag(const String &want) {
   NimBLEAddress addr;
   if (!findTag(want, addr)) {
     Serial.printf("Tag '%s' not found.\n", want.c_str());
     return false;
   }
+  lastAddr = addr;
+  return openLink(addr);
+}
+
+// Drop the link and open it again to the same tag (no scan). Needed after reading the status: an
+// upload sent soon after 0016 is received but never displayed (seen on the 5.83"; a reconnect after
+// 0.3 s wasn't enough, 2 s + a fresh 0005 like the working laptop sequence is).
+static bool reconnectTag() {
+  disconnectTag();
+  delay(2000);
+  Serial.println("Reconnecting for the upload...");
+  return openLink(lastAddr);
+}
+
+static bool openLink(const NimBLEAddress &addr) {
   if (!client) {
     client = NimBLEDevice::createClient();
     client->setConnectTimeout(10 * 1000);
@@ -322,6 +341,12 @@ static bool sendData(const ImageBytes &byteAt, size_t imgLen, uint8_t dataType) 
         Serial.printf(n.data[1] == 0xC7 ? "Upload OK (%lu ms), drawing...\n" : "Tag already has this image, drawing...\n",
                       millis() - t0);
         sendCmd(0x0003);
+        // Stay connected while the tag stores the image and starts drawing: hanging up right away
+        // made the 5.83" draw the *previous* upload. Log what it says meanwhile.
+        for (uint32_t until = millis() + 2500; (int32_t)(until - millis()) > 0;) {
+          Notif a;
+          if (waitNotif(a, 100)) Serial.printf("After draw: %02X%02X (%u bytes)\n", a.data[0], a.data[1], a.len);
+        }
         return true;
       default:
         break;  // 0063 command acks etc.
@@ -392,7 +417,8 @@ static Insets panelBaseHidden(const DisplayInfo &di) {
 }
 
 // Connect, read display info, draw with `draw(blk, red, color)` on a canvas sized for the tag and
-// its rotation, pack and upload. `before` runs after connecting (e.g. to read the status).
+// its rotation, pack and upload. `before` (if any) runs after connecting, e.g. to read the status;
+// the link is then opened again for the upload (see reconnectTag()).
 static bool drawAndUpload(const String &tag, const std::function<void()> &before,
                           const std::function<void(GFXcanvas1 &, GFXcanvas1 &, bool, Insets)> &draw) {
   if (!connectTag(tag)) return false;
@@ -404,7 +430,14 @@ static bool drawAndUpload(const String &tag, const std::function<void()> &before
   }
   bool color = di.colors >= 2;
   Serial.printf("Display buffer %ux%u, colors %u\n", di.wb, di.hb, di.colors);
-  before();
+  if (before) {
+    before();
+    if (!reconnectTag() || !readDisplayInfo(di)) {
+      Serial.println("Reconnect failed.");
+      disconnectTag();
+      return false;
+    }
+  }
 
   uint8_t rot = tagRotation(connectedName);
   int cw = rot & 1 ? di.wb : di.hb, ch = rot & 1 ? di.hb : di.wb;
@@ -441,7 +474,7 @@ static bool drawAndUpload(const String &tag, const std::function<void()> &before
 
 static void cmdSend(const String &tag, const String &spec) {
   std::string s(spec.c_str());
-  drawAndUpload(tag, [] {}, [&](GFXcanvas1 &blk, GFXcanvas1 &red, bool color, Insets hid) {
+  drawAndUpload(tag, nullptr, [&](GFXcanvas1 &blk, GFXcanvas1 &red, bool color, Insets hid) {
     renderSpec(s, blk, red, color, hid);
   });
 }
