@@ -82,6 +82,10 @@ struct DisplayInfo {
   uint8_t colors;
 };
 
+// The image is read through byteAt(i) rather than from a buffer: text and stats are packed from the
+// drawing canvases while sending, so a 5.83" (76 KB BWR) needs no packed copy in RAM.
+using ImageBytes = std::function<uint8_t(size_t)>;
+
 // ---------------------------------------------------------------- BLE plumbing
 
 static void onNotify(NimBLERemoteCharacteristic *, uint8_t *data, size_t len, bool) {
@@ -217,16 +221,16 @@ static bool readDisplayInfo(DisplayInfo &di) {
 
 // ---------------------------------------------------------------- upload
 
-static uint32_t crc32(const uint8_t *d, size_t n) {
+static uint32_t crc32(const ImageBytes &byteAt, size_t n) {
   uint32_t c = 0xFFFFFFFF;
-  while (n--) {
-    c ^= *d++;
+  for (size_t i = 0; i < n; i++) {
+    c ^= byteAt(i);
     for (int k = 0; k < 8; k++) c = (c >> 1) ^ (0xEDB88320 & -(c & 1));
   }
   return ~c;
 }
 
-static bool sendBlock(const uint8_t *img, size_t imgLen, uint8_t blockId) {
+static bool sendBlock(const ImageBytes &byteAt, size_t imgLen, uint8_t blockId) {
   size_t start = (size_t)blockId * kBlockSize;
   if (start >= imgLen) return false;
   size_t len = imgLen - start < kBlockSize ? imgLen - start : kBlockSize;
@@ -234,12 +238,11 @@ static bool sendBlock(const uint8_t *img, size_t imgLen, uint8_t blockId) {
   // block = [len16 LE][sum16 LE][data]
   static uint8_t block[kBlockSize + 4];
   uint16_t sum = 0;
-  for (size_t i = 0; i < len; i++) sum += img[start + i];
+  for (size_t i = 0; i < len; i++) sum += block[4 + i] = byteAt(start + i);
   block[0] = len & 0xFF;
   block[1] = len >> 8;
   block[2] = sum & 0xFF;
   block[3] = sum >> 8;
-  memcpy(block + 4, img + start, len);
   size_t blockLen = len + 4;
   int parts = (blockLen + kPartSize - 1) / kPartSize;
 
@@ -279,8 +282,8 @@ static bool sendBlock(const uint8_t *img, size_t imgLen, uint8_t blockId) {
   return true;
 }
 
-static bool uploadImage(const uint8_t *img, size_t imgLen, bool color) {
-  uint32_t ver = crc32(img, imgLen);
+static bool uploadImage(const ImageBytes &byteAt, size_t imgLen, bool color) {
+  uint32_t ver = crc32(byteAt, imgLen);
   // AvailDataInfo: checksum u8, dataVer u64, dataSize u32, dataType u8, dataTypeArg u8, nextCheckIn u16
   uint8_t info[17] = {0};
   info[0] = 0xFF;
@@ -301,7 +304,7 @@ static bool uploadImage(const uint8_t *img, size_t imgLen, bool color) {
     if (n.len < 2 || n.data[0] != 0x00) continue;
     switch (n.data[1]) {
       case 0xC6:  // block request: 00C6 checksum ver[8] blockId ...
-        if (n.len >= 12 && !sendBlock(img, imgLen, n.data[11])) return false;
+        if (n.len >= 12 && !sendBlock(byteAt, imgLen, n.data[11])) return false;
         break;
       case 0xC7:
       case 0xC8:
@@ -386,26 +389,22 @@ static bool drawAndUpload(const String &tag, const std::function<void()> &before
   }
   draw(blk, red, color, rotateInsets(panelBaseHidden(di), rot));  // draw only where the panel shows
 
-  size_t plane = ((size_t)di.wb * di.hb + 7) / 8;
+  size_t pixels = (size_t)di.wb * di.hb, plane = (pixels + 7) / 8;
   size_t len = plane * (color ? 2 : 1);
-  uint8_t *img = (uint8_t *)calloc(len, 1);
-  if (!img) {
-    Serial.println("Out of memory for image.");
-    disconnectTag();
-    return false;
-  }
-  size_t bit = 0;
-  for (int yb = 0; yb < di.hb; yb++) {
-    for (int xb = 0; xb < di.wb; xb++, bit++) {
+  // Byte i of the image (plane 1 black, plane 2 red; red wins), packed on demand from the canvases.
+  ImageBytes byteAt = [&](size_t i) -> uint8_t {
+    bool redPlane = i >= plane;
+    size_t bit = (redPlane ? i - plane : i) * 8;
+    uint8_t v = 0;
+    for (int j = 0; j < 8 && bit < pixels; j++, bit++) {
+      int xb = bit % di.wb, yb = bit / di.wb;
       bool r = color && canvasPixel(red, xb, yb, di.wb, di.hb, rot);
-      bool k = !r && canvasPixel(blk, xb, yb, di.wb, di.hb, rot);
-      if (k) img[bit >> 3] |= 0x80 >> (bit & 7);
-      if (r) img[plane + (bit >> 3)] |= 0x80 >> (bit & 7);
+      if (redPlane ? r : !r && canvasPixel(blk, xb, yb, di.wb, di.hb, rot)) v |= 0x80 >> j;
     }
-  }
+    return v;
+  };
   Serial.printf("Uploading %u bytes (%s)...\n", (unsigned)len, color ? "BWR" : "BW");
-  bool ok = uploadImage(img, len, color);
-  free(img);
+  bool ok = uploadImage(byteAt, len, color);
   delay(500);  // let the 0003 go out before dropping the link
   disconnectTag();
   Serial.println(ok ? "Done. (BWR refresh takes ~15 s)" : "Upload failed.");
@@ -637,7 +636,7 @@ static void cmdImg(const String &arg) {
     return;
   }
   Serial.printf("Uploading %ld bytes (%s)...\n", len, color ? "BWR" : "BW");
-  bool ok = uploadImage(img, len, color);
+  bool ok = uploadImage([img](size_t i) { return img[i]; }, len, color);
   free(img);
   delay(500);
   disconnectTag();
