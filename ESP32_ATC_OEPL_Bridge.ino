@@ -13,6 +13,7 @@
  *
  * Image format (data type 0x20 BW / 0x21 BWR): buffer of Wb×Hb pixels, row-major, MSB first,
  * bits continuous across rows. Plane 1: 1 = black. Plane 2 (colour tags): 1 = red.
+ * Sent compressed (data type 0x30, deflate.h): raw size (u32 LE) + zlib(06 Wb Hb planes buffer).
  * The panel shows the buffer rotated 90° clockwise, so we draw on a landscape canvas
  * (Wv = Hb, Hv = Wb) and rotate it back while packing.
  *
@@ -30,6 +31,8 @@
  *   target <name|mac>          set default tag (saved in flash), e.g. target ATC_583740
  *   info [name|mac]            connect and print display info
  *   img <name|mac|-> <len>     receive <len> raw buffer bytes (web page upload), then send them
+ *   imgz <name|mac|-> <len>    same for an already compressed payload (data type 0x30, what the web
+ *                              page sends: a 5.83" picture needs no 76 KB buffer on the ESP32)
  *   rot <name> <0-3>           per-tag extra rotation, clockwise quarter turns (saved), e.g.
  *                              rot ATC_448A42 1   — rot <name> alone shows the current value
  *   send <spec>                render and upload to the target
@@ -60,6 +63,7 @@
 #include <sys/time.h>
 #include <functional>
 #include "render.h"  // fonts, formatted text, stats screen (shared with the web page's render.js)
+#include "deflate.h"  // compressed uploads (shared with the web page's oepl.js)
 
 static const NimBLEUUID kUuid((uint16_t)0x1337);
 static const uint16_t kManufacturerId = 0x1337;
@@ -282,7 +286,8 @@ static bool sendBlock(const ImageBytes &byteAt, size_t imgLen, uint8_t blockId) 
   return true;
 }
 
-static bool uploadImage(const ImageBytes &byteAt, size_t imgLen, bool color) {
+// Send `imgLen` bytes as data type 0x20 (BW) / 0x21 (BWR) / 0x30 (compressed).
+static bool sendData(const ImageBytes &byteAt, size_t imgLen, uint8_t dataType) {
   uint32_t ver = crc32(byteAt, imgLen);
   // AvailDataInfo: checksum u8, dataVer u64, dataSize u32, dataType u8, dataTypeArg u8, nextCheckIn u16
   uint8_t info[17] = {0};
@@ -290,7 +295,7 @@ static bool uploadImage(const ImageBytes &byteAt, size_t imgLen, bool color) {
   memcpy(info + 1, &ver, 4);  // ESP32 is little-endian; upper 4 bytes of dataVer stay 0
   uint32_t sz = imgLen;
   memcpy(info + 9, &sz, 4);
-  info[13] = color ? 0x21 : 0x20;
+  info[13] = dataType;
   xQueueReset(notifQueue);
   sendCmd(0x0064, info, sizeof(info));
 
@@ -316,6 +321,22 @@ static bool uploadImage(const ImageBytes &byteAt, size_t imgLen, bool color) {
         break;  // 0063 command acks etc.
     }
   }
+}
+
+// Upload a raw buffer (Wb×Hb, 1 or 2 planes) compressed, like atc1441's uploader. The 5.83" tag
+// redraws an older image after big uncompressed uploads; compressed, its stats screen is ~6 KB.
+// Raw only if compressing doesn't make it smaller (or memory runs out).
+static bool uploadImage(const ImageBytes &byteAt, size_t imgLen, bool color, const DisplayInfo &di) {
+  size_t zLen = 0;
+  uint8_t *z = zdeflate::compressImage(byteAt, imgLen, di.wb, di.hb, color ? 2 : 1, imgLen, zLen);
+  if (!z) {
+    Serial.printf("Sending %u bytes uncompressed\n", (unsigned)imgLen);
+    return sendData(byteAt, imgLen, color ? 0x21 : 0x20);
+  }
+  Serial.printf("Compressed %u -> %u bytes\n", (unsigned)imgLen, (unsigned)zLen);
+  bool ok = sendData([z](size_t i) { return z[i]; }, zLen, 0x30);
+  free(z);
+  return ok;
 }
 
 // ---------------------------------------------------------------- drawing → tag
@@ -404,7 +425,7 @@ static bool drawAndUpload(const String &tag, const std::function<void()> &before
     return v;
   };
   Serial.printf("Uploading %u bytes (%s)...\n", (unsigned)len, color ? "BWR" : "BW");
-  bool ok = uploadImage(byteAt, len, color);
+  bool ok = uploadImage(byteAt, len, color, di);
   delay(500);  // let the 0003 go out before dropping the link
   disconnectTag();
   Serial.println(ok ? "Done. (BWR refresh takes ~15 s)" : "Upload failed.");
@@ -580,8 +601,9 @@ static void cmdAuto(const String &arg) {
 // img <tag> <len>: receive a ready-made buffer (as packed by the web page: plane 1 = black,
 // optional plane 2 = red, in the tag's buffer orientation) and upload it unchanged.
 // Handshake: we print "READY <len>", the host sends the bytes in chunks of up to 1024 and waits
-// for "ACK <total>" after each one. Tag "-" means the saved target.
-static void cmdImg(const String &arg) {
+// for "ACK <total>" after each one. Tag "-" means the saved target. `compressed`: the bytes are a
+// ready compressed payload (imgz), sent as data type 0x30 without checking the size.
+static void cmdImg(const String &arg, bool compressed) {
   int sp = arg.lastIndexOf(' ');
   String tag = sp < 0 ? "" : arg.substring(0, sp);
   long len = sp < 0 ? arg.toInt() : arg.substring(sp + 1).toInt();
@@ -628,6 +650,23 @@ static void cmdImg(const String &arg) {
   }
   size_t plane = ((size_t)di.wb * di.hb + 7) / 8;
   Serial.printf("Display buffer %ux%u, colors %u\n", di.wb, di.hb, di.colors);
+  if (compressed) {
+    // The payload starts with the raw size (u32 LE): it must fit this tag like an uncompressed one.
+    size_t raw = len < 4 ? 0 : img[0] | img[1] << 8 | img[2] << 16 | (size_t)img[3] << 24;
+    if (raw != plane && raw != 2 * plane) {
+      Serial.printf("ERR image is %u bytes, this tag needs %u (BW) or %u (BWR)\n", (unsigned)raw, (unsigned)plane, (unsigned)(2 * plane));
+      disconnectTag();
+      free(img);
+      return;
+    }
+    Serial.printf("Uploading %ld bytes (compressed)...\n", len);
+    bool ok = sendData([img](size_t i) { return img[i]; }, len, 0x30);
+    free(img);
+    delay(500);
+    disconnectTag();
+    Serial.println(ok ? "Done. (BWR refresh takes ~15 s)" : "Upload failed.");
+    return;
+  }
   bool color = (size_t)len == 2 * plane;
   if (!color && (size_t)len != plane) {
     Serial.printf("ERR image is %ld bytes, this tag needs %u (BW) or %u (BWR)\n", len, (unsigned)plane, (unsigned)(2 * plane));
@@ -636,7 +675,7 @@ static void cmdImg(const String &arg) {
     return;
   }
   Serial.printf("Uploading %ld bytes (%s)...\n", len, color ? "BWR" : "BW");
-  bool ok = uploadImage([img](size_t i) { return img[i]; }, len, color);
+  bool ok = uploadImage([img](size_t i) { return img[i]; }, len, color, di);
   free(img);
   delay(500);
   disconnectTag();
@@ -679,7 +718,7 @@ void setup() {
   if (prefs.isKey("wifi_ssid")) prefs.remove("wifi_ssid");
   if (prefs.isKey("wifi_pass")) prefs.remove("wifi_pass");
   applyTz();
-  Serial.println("\nESP32_ATC_OEPL_Bridge ready. Commands: scan | target | info | img | rot | send | to | stats | auto | time | tz");
+  Serial.println("\nESP32_ATC_OEPL_Bridge ready. Commands: scan | target | info | img | imgz | rot | send | to | stats | auto | time | tz");
   Serial.printf("Target: %s\n", targetTag.length() ? targetTag.c_str() : "(first ATC tag found)");
   printAuto();
   // Give a connected page a few seconds to set the clock before the first auto refresh.
@@ -721,7 +760,8 @@ void loop() {
       Serial.printf("%s rotation = %u x 90 deg CW\n", name.c_str(), tagRotation(name));
     }
   } else if (cmd == "info") cmdInfo(arg);
-  else if (cmd == "img") cmdImg(arg);
+  else if (cmd == "img") cmdImg(arg, false);
+  else if (cmd == "imgz") cmdImg(arg, true);
   else if (cmd == "send") cmdSend(targetTag, arg);
   else if (cmd == "to") {
     int s2 = arg.indexOf(' ');

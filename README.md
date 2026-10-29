@@ -86,6 +86,7 @@ One per line, 115200 baud. The web page uses the same commands.
 | `target <name\|mac>` | Default tag for `send` (saved) |
 | `info [name\|mac]` | Connect and print the tag's display buffer size and colours |
 | `img <name\|mac\|-> <len>` | Receive `<len>` raw buffer bytes (prints `READY`, then `ACK <n>` per 1 KB) and upload them |
+| `imgz <name\|mac\|-> <len>` | Same, for a payload that is already compressed (data type `0x30`; the web page sends this) |
 | `rot <name> [0-3]` | Per-tag rotation of drawn text/stats, clockwise quarter turns (saved) |
 | `send <spec>` / `to <name> <spec>` | Draw formatted text (see below) and upload it |
 | `stats <name\|mac\|->` | Read battery + temperatures, draw the stats screen, upload; prints `STATS name mV board screen time` |
@@ -120,6 +121,10 @@ Service and characteristic `0x1337`, the same protocol as atc1441's
 - `0005` → display info (buffer size, colours)
 - `0064` + data info → the tag asks for 4 KB blocks (`00C6`) → `0002`, then `0065` parts of 230 bytes,
   acked with `00C5`/`00C4` → `00C7`/`00C8` done → `0003` draw
+- Uploads are compressed (data type `0x30`, `deflate.h`): raw size (u32 LE) + zlib with a 4 KB window
+  of `06`, width, height (u16 LE), planes (1 or 2), then the buffer. A 5.83″ stats screen shrinks from
+  76 KB to ~6 KB. The 5.83″ tag sometimes redraws an older image after a big uncompressed upload, so
+  the raw types (`0x20` BW / `0x21` BWR) are only used when compression doesn't make an image smaller.
 - `0016 0000` → `00D1` + battery mV, raw ADC, chip temperature, panel temperature
 
 Image buffer: black plane, then red plane (1 = ink), row-major, MSB first. The 2.13″ panel shows its
