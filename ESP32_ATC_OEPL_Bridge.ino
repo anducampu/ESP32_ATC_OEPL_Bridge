@@ -183,12 +183,16 @@ static bool connectTag(const String &want) {
   return openLink(addr);
 }
 
-// Drop the link and open it again to the same tag (no scan). Needed after reading the status: an
-// upload sent soon after 0016 is received but never displayed (seen on the 5.83"; a reconnect after
-// 0.3 s wasn't enough, 2 s + a fresh 0005 like the working laptop sequence is).
+// Drop the link and open a new one to the same tag (no scan). Needed after reading the status: once
+// 0016 was sent on a link, the tag skips preparing its storage for any upload on that same link (it
+// asks for the first block after ~0.25 s instead of ~2.3 s) and the image is never displayed (seen on
+// the 5.83"). Waiting on the link doesn't help; a really new link does — so wait until it is down.
 static bool reconnectTag() {
   disconnectTag();
-  delay(2000);
+  uint32_t t = millis();
+  while (client && client->isConnected() && millis() - t < 5000) delay(20);
+  Serial.printf("Link down after %lu ms%s\n", (unsigned long)(millis() - t), client && client->isConnected() ? " (still connected!)" : "");
+  delay(500);
   Serial.println("Reconnecting for the upload...");
   return openLink(lastAddr);
 }
@@ -311,8 +315,12 @@ static bool sendBlock(const ImageBytes &byteAt, size_t imgLen, uint8_t blockId) 
   return true;
 }
 
-// Send `imgLen` bytes as data type 0x20 (BW) / 0x21 (BWR) / 0x30 (compressed).
-static bool sendData(const ImageBytes &byteAt, size_t imgLen, uint8_t dataType) {
+static bool reconnectTag();
+static bool readDisplayInfo(DisplayInfo &di);
+
+// One attempt: send `imgLen` bytes as data type 0x20 (BW) / 0x21 (BWR) / 0x30 (compressed).
+// Returns 1 done, 0 failed, -1 the tag didn't prepare its storage (see sendData()).
+static int sendOnce(const ImageBytes &byteAt, size_t imgLen, uint8_t dataType) {
   uint32_t ver = dataVersion(byteAt, imgLen);
   // AvailDataInfo: checksum u8, dataVer u64, dataSize u32, dataType u8, dataTypeArg u8, nextCheckIn u16
   uint8_t info[17] = {0};
@@ -324,33 +332,69 @@ static bool sendData(const ImageBytes &byteAt, size_t imgLen, uint8_t dataType) 
   xQueueReset(notifQueue);
   sendCmd(0x0064, info, sizeof(info));
 
+  // Before asking for the first block the tag erases flash for the whole image, ~125 ms per 4 KB of
+  // the *uncompressed* size (2.3 s on a 5.83"). Sometimes (after 0016 on the same link, after an
+  // interrupted upload, back to back) it erases far less and asks after ~0.25 s: then the image is
+  // received but never displayed. Only images over 64 KB (the 5.83") are affected: the 4.2" (30 KB)
+  // always asks after ~0.2 s and displays fine.
+  size_t raw = dataType == 0x30 && imgLen >= 4 ? byteAt(0) | byteAt(1) << 8 | byteAt(2) << 16 | (size_t)byteAt(3) << 24 : imgLen;
+  uint32_t minPrepMs = raw > 65536 ? raw / 4096 * 60 : 0;
   uint32_t t0 = millis();
+  bool firstRequest = true;
   while (true) {
     Notif n;
     if (!waitNotif(n, 10000)) {
       Serial.println("Timeout waiting for tag.");
-      return false;
+      return 0;
     }
     if (n.len < 2 || n.data[0] != 0x00) continue;
     switch (n.data[1]) {
       case 0xC6:  // block request: 00C6 checksum ver[8] blockId ...
-        if (n.len >= 12 && !sendBlock(byteAt, imgLen, n.data[11])) return false;
+        if (firstRequest) {
+          uint32_t ms = millis() - t0;
+          firstRequest = false;
+          if (ms < minPrepMs) {
+            Serial.printf("Tag asked for the first block after %lu ms, too soon for %u bytes: it didn't prepare.\n",
+                          (unsigned long)ms, (unsigned)raw);
+            return -1;
+          }
+        }
+        if (n.len >= 12 && !sendBlock(byteAt, imgLen, n.data[11])) return 0;
         break;
       case 0xC7:
       case 0xC8:
         Serial.printf(n.data[1] == 0xC7 ? "Upload OK (%lu ms), drawing...\n" : "Tag already has this image, drawing...\n",
                       millis() - t0);
         sendCmd(0x0003);
-        // Stay connected while the tag stores the image and starts drawing: hanging up right away
-        // made the 5.83" draw the *previous* upload. Log what it says meanwhile.
-        for (uint32_t until = millis() + 2500; (int32_t)(until - millis()) > 0;) {
+        // Stay connected until the tag acks 0003 (0063, ~3.8 s on a 5.83": it has stored the image).
+        // Hanging up earlier made the 5.83" draw the *previous* upload.
+        for (uint32_t until = millis() + 10000; (int32_t)(until - millis()) > 0;) {
           Notif a;
-          if (waitNotif(a, 100)) Serial.printf("After draw: %02X%02X (%u bytes)\n", a.data[0], a.data[1], a.len);
+          if (waitNotif(a, 100) && a.len >= 2 && a.data[0] == 0x00 && a.data[1] == 0x63) break;
         }
-        return true;
+        return 1;
       default:
         break;  // 0063 command acks etc.
     }
+  }
+}
+
+// Send with up to 3 retries on a new link when the tag didn't prepare (nothing was sent yet). Once a
+// tag is in that state it stays so for about a minute, hence the growing waits.
+static bool sendData(const ImageBytes &byteAt, size_t imgLen, uint8_t dataType) {
+  static const uint16_t waitS[3] = {5, 20, 45};
+  for (int attempt = 1;; attempt++) {
+    int r = sendOnce(byteAt, imgLen, dataType);
+    if (r >= 0) return r;
+    if (attempt == 4) {
+      Serial.println("The tag didn't prepare in 4 attempts.");
+      return false;
+    }
+    DisplayInfo di;
+    Serial.printf("Retry %d in %u s on a new link...\n", attempt, waitS[attempt - 1]);
+    disconnectTag();
+    delay(waitS[attempt - 1] * 1000UL);
+    if (!reconnectTag() || !readDisplayInfo(di)) return false;
   }
 }
 
