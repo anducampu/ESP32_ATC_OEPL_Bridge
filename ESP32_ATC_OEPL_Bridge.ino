@@ -330,7 +330,8 @@ static bool uploadImage(const ImageBytes &byteAt, size_t imgLen, bool color, con
   size_t zLen = 0;
   uint8_t *z = zdeflate::compressImage(byteAt, imgLen, di.wb, di.hb, color ? 2 : 1, imgLen, zLen);
   if (!z) {
-    Serial.printf("Sending %u bytes uncompressed\n", (unsigned)imgLen);
+    Serial.printf("Sending %u bytes uncompressed (not smaller compressed, or no memory: %u free, largest block %u)\n",
+                  (unsigned)imgLen, (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
     return sendData(byteAt, imgLen, color ? 0x21 : 0x20);
   }
   Serial.printf("Compressed %u -> %u bytes\n", (unsigned)imgLen, (unsigned)zLen);
