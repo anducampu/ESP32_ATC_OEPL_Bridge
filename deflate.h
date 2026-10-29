@@ -1,8 +1,8 @@
 // deflate.h — zlib compression for compressed image uploads (data type 0x30), like atc1441's uploader:
 // payload = raw size (u32 LE) + zlib(06, Wb u16 LE, Hb u16 LE, planes, raw buffer) with a 4 KB window.
-// The tags' decoder only takes DYNAMIC Huffman blocks (fixed-Huffman streams hang it mid-upload), so:
-// greedy LZ77 with one hash candidate, blocks of up to 2048 tokens, each with its own length-limited
-// Huffman codes. Same bytes as zlibCompress() in the web page's oepl.js (check with
+// The tags' decoder only takes ONE DYNAMIC Huffman block (fixed-Huffman streams hang it mid-upload, a
+// second block is never displayed), so: greedy LZ77 with one hash candidate, run twice over the input
+// (count the symbols, then write them) into a single block with length-limited Huffman codes. Same bytes as zlibCompress() in the web page's oepl.js (check with
 // tools/deflate_test.cpp + tools/deflate_test.mjs). The input is read once, in order, through `at(i)`
 // into an 8 KB ring, so the raw image never has to be in RAM: text and stats are packed from the
 // drawing canvases on the fly.
@@ -41,7 +41,6 @@ struct Out {
 };
 
 static const uint8_t kClOrder[19] = {16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15};
-static const int kBlockTokens = 2048;
 
 static int lenCode(int len) { int c = 0; while (c < 28 && kLenBase[c + 1] <= len) c++; return c; }
 static int distCode(int dist) { int d = 0; while (d < 23 && kDistBase[d + 1] <= dist) d++; return d; }
@@ -107,19 +106,17 @@ struct Compressor {
   size_t n, filled = 0;
   uint8_t ring[kRing];
   int32_t head[kHash];  // hash → last position + 1
-  uint16_t tokLit[kBlockTokens], tokDist[kBlockTokens];
-  int ntok = 0;
   HuffScratch hs;
   int32_t fl[286], fd[30], fc[19];
   uint8_t ll[286], dl[30], cl[19];
   uint16_t cc[19], lc[286], dc[30];
+  bool counting = true;
+  uint32_t adA = 1, adB = 0;
   Out &out;
   uint32_t acc = 0;
   int nacc = 0;
 
-  Compressor(const std::function<uint8_t(size_t)> &a, size_t len, Out &o) : at(a), n(len), out(o) {
-    memset(head, 0, sizeof head);
-  }
+  Compressor(const std::function<uint8_t(size_t)> &a, size_t len, Out &o) : at(a), n(len), out(o) {}
   uint8_t src(size_t p) {
     while (filled <= p) ring[filled & (kRing - 1)] = at(filled), filled++;
     return ring[p & (kRing - 1)];
@@ -134,56 +131,29 @@ struct Compressor {
     for (int i = 0; i < k; i++) r |= ((code >> i) & 1) << (k - 1 - i);
     bits(r, k);
   }
-  void flush(bool final) {
-    memset(fl, 0, sizeof fl), memset(fd, 0, sizeof fd), memset(fc, 0, sizeof fc);
-    for (int t = 0; t < ntok; t++) {
-      if (tokDist[t]) fl[257 + lenCode(tokLit[t])]++, fd[distCode(tokDist[t])]++;
-      else fl[tokLit[t]]++;
+  // One token: counted in the first pass, written in the second.
+  void emit(int v, int dist) {
+    if (counting) {
+      if (dist) fl[257 + lenCode(v)]++, fd[distCode(dist)]++;
+      else fl[v]++;
+    } else if (dist) {
+      int c = lenCode(v), d = distCode(dist);
+      huff(lc[257 + c], ll[257 + c]);
+      bits(v - kLenBase[c], kLenExtra[c]);
+      huff(dc[d], dl[d]);
+      bits(dist - kDistBase[d], kDistExtra[d]);
+    } else {
+      huff(lc[v], ll[v]);
     }
-    fl[256]++;
-    codeLengths(fl, 286, 15, ll, hs);
-    codeLengths(fd, 30, 15, dl, hs);
-    int hlit = 286, hdist = 30;
-    while (hlit > 257 && !ll[hlit - 1]) hlit--;
-    while (hdist > 1 && !dl[hdist - 1]) hdist--;
-    for (int i = 0; i < hlit; i++) fc[ll[i]]++;  // no run-length codes: plain 0–15
-    for (int i = 0; i < hdist; i++) fc[dl[i]]++;
-    codeLengths(fc, 19, 7, cl, hs);
-    canonical(cl, 19, cc);
-    int hclen = 19;
-    while (hclen > 4 && !cl[kClOrder[hclen - 1]]) hclen--;
-    bits(final ? 1 : 0, 1);
-    bits(2, 2);
-    bits(hlit - 257, 5);
-    bits(hdist - 1, 5);
-    bits(hclen - 4, 4);
-    for (int i = 0; i < hclen; i++) bits(cl[kClOrder[i]], 3);
-    for (int i = 0; i < hlit; i++) huff(cc[ll[i]], cl[ll[i]]);
-    for (int i = 0; i < hdist; i++) huff(cc[dl[i]], cl[dl[i]]);
-    canonical(ll, 286, lc);
-    canonical(dl, 30, dc);
-    for (int t = 0; t < ntok; t++) {
-      if (tokDist[t]) {
-        int len = tokLit[t], dist = tokDist[t], c = lenCode(len), d = distCode(dist);
-        huff(lc[257 + c], ll[257 + c]);
-        bits(len - kLenBase[c], kLenExtra[c]);
-        huff(dc[d], dl[d]);
-        bits(dist - kDistBase[d], kDistExtra[d]);
-      } else {
-        huff(lc[tokLit[t]], ll[tokLit[t]]);
-      }
-    }
-    huff(lc[256], ll[256]);
-    ntok = 0;
   }
   uint32_t hash(size_t p) {
     uint32_t v = ((uint32_t)src(p) << 16) | ((uint32_t)src(p + 1) << 8) | src(p + 2);
     return ((v * 2654435761u) >> 21) & (kHash - 1);
   }
-  void run() {
-    out.put(0x48);
-    out.put(0xc7);
-    uint32_t a = 1, b = 0;
+  // Greedy LZ77 over the input, from the start (the input is read again for each pass).
+  void lz77() {
+    filled = 0;
+    memset(head, 0, sizeof head);
     size_t adlerAt = 0;
     for (size_t i = 0; i < n && !out.fail;) {
       int len = 0;
@@ -198,20 +168,52 @@ struct Compressor {
         }
       }
       if (len >= 3) {
-        tokLit[ntok] = len, tokDist[ntok] = dist, ntok++;
+        emit(len, dist);
         for (int k = 1; k < len; k++)
           if (i + k + 3 <= n) head[hash(i + k)] = i + k + 1;
         i += len;
       } else {
-        tokLit[ntok] = src(i), tokDist[ntok] = 0, ntok++;
+        emit(src(i), 0);
         i++;
       }
-      for (; adlerAt < i; adlerAt++) a = (a + src(adlerAt)) % 65521, b = (b + a) % 65521;  // still in the ring
-      if (ntok == kBlockTokens && i < n) flush(false);
+      if (!counting)  // Adler-32 while the bytes are still in the ring
+        for (; adlerAt < i; adlerAt++) adA = (adA + src(adlerAt)) % 65521, adB = (adB + adA) % 65521;
     }
-    flush(true);
+  }
+  // zlib stream with ONE dynamic-Huffman block: the tags' decoder fails on a second block.
+  void run() {
+    memset(fl, 0, sizeof fl), memset(fd, 0, sizeof fd), memset(fc, 0, sizeof fc);
+    counting = true;
+    lz77();
+    fl[256]++;
+    codeLengths(fl, 286, 15, ll, hs);
+    codeLengths(fd, 30, 15, dl, hs);
+    int hlit = 286, hdist = 30;
+    while (hlit > 257 && !ll[hlit - 1]) hlit--;
+    while (hdist > 1 && !dl[hdist - 1]) hdist--;
+    for (int i = 0; i < hlit; i++) fc[ll[i]]++;  // no run-length codes: plain 0–15
+    for (int i = 0; i < hdist; i++) fc[dl[i]]++;
+    codeLengths(fc, 19, 7, cl, hs);
+    canonical(cl, 19, cc);
+    int hclen = 19;
+    while (hclen > 4 && !cl[kClOrder[hclen - 1]]) hclen--;
+    out.put(0x48);
+    out.put(0xc7);
+    bits(1, 1);
+    bits(2, 2);  // BFINAL, BTYPE = dynamic Huffman
+    bits(hlit - 257, 5);
+    bits(hdist - 1, 5);
+    bits(hclen - 4, 4);
+    for (int i = 0; i < hclen; i++) bits(cl[kClOrder[i]], 3);
+    for (int i = 0; i < hlit; i++) huff(cc[ll[i]], cl[ll[i]]);
+    for (int i = 0; i < hdist; i++) huff(cc[dl[i]], cl[dl[i]]);
+    canonical(ll, 286, lc);
+    canonical(dl, 30, dc);
+    counting = false;
+    lz77();
+    huff(lc[256], ll[256]);
     if (nacc) out.put(acc & 0xff);
-    uint32_t ad = (b << 16) | a;
+    uint32_t ad = (adB << 16) | adA;
     out.put(ad >> 24);
     out.put(ad >> 16);
     out.put(ad >> 8);
@@ -229,7 +231,7 @@ inline uint8_t *compressImage(const std::function<uint8_t(size_t)> &rawAt, size_
   Out out;
   out.max = maxLen;
   for (int k = 0; k < 4; k++) out.put((rawLen >> (8 * k)) & 0xff);
-  Compressor *c = new (std::nothrow) Compressor(at, rawLen + 6, out);  // ~38 KB: keep it off the stack
+  Compressor *c = new (std::nothrow) Compressor(at, rawLen + 6, out);  // ~24 KB: keep it off the stack
   if (!c) { free(out.buf); return nullptr; }
   c->run();
   delete c;

@@ -123,8 +123,12 @@ Service and characteristic `0x1337`, the same protocol as atc1441's
   acked with `00C5`/`00C4` → `00C7`/`00C8` done → `0003` draw
 - Uploads are compressed (data type `0x30`, `deflate.h`): raw size (u32 LE) + zlib with a 4 KB window
   of `06`, width, height (u16 LE), planes (1 or 2), then the buffer. A 5.83″ stats screen shrinks from
-  76 KB to ~6 KB. The 5.83″ tag sometimes redraws an older image after a big uncompressed upload, so
-  the raw types (`0x20` BW / `0x21` BWR) are only used when compression doesn't make an image smaller.
+  76 KB to ~5 KB. The tags' decoder needs a single dynamic-Huffman deflate block (fixed Huffman codes
+  hang it, a second block is ignored), so the encoder makes two passes and writes one block. The raw
+  types (`0x20` BW / `0x21` BWR) are only used when compression doesn't make an image smaller.
+- The image version in the `0064` data info is CRC32 over [size u16 LE, byte sum u16 LE] + data, as
+  atc1441's uploader computes it. The tags check it on uploads longer than one block: with a plain
+  CRC32 they stall or redraw an older image.
 - `0016 0000` → `00D1` + battery mV, raw ADC, chip temperature, panel temperature
 
 Image buffer: black plane, then red plane (1 = ink), row-major, MSB first. The 2.13″ panel shows its

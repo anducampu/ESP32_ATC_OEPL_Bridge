@@ -225,10 +225,16 @@ static bool readDisplayInfo(DisplayInfo &di) {
 
 // ---------------------------------------------------------------- upload
 
-static uint32_t crc32(const ImageBytes &byteAt, size_t n) {
+// The image version the tag is told in 0064 (dataVer), computed like atc1441's uploader
+// (computeCRC32): CRC32 over [size u16 LE, byte sum u16 LE] + data. The tags check it: with a plain
+// CRC32 of the data, uploads longer than one 4 KB block stall or end with an older image redrawn.
+static uint32_t dataVersion(const ImageBytes &byteAt, size_t n) {
+  uint16_t sum = 0;
+  for (size_t i = 0; i < n; i++) sum += byteAt(i);
+  const uint8_t pre[4] = {(uint8_t)(n & 0xFF), (uint8_t)(n >> 8), (uint8_t)(sum & 0xFF), (uint8_t)(sum >> 8)};
   uint32_t c = 0xFFFFFFFF;
-  for (size_t i = 0; i < n; i++) {
-    c ^= byteAt(i);
+  for (size_t i = 0; i < 4 + n; i++) {
+    c ^= i < 4 ? pre[i] : byteAt(i - 4);
     for (int k = 0; k < 8; k++) c = (c >> 1) ^ (0xEDB88320 & -(c & 1));
   }
   return ~c;
@@ -288,7 +294,7 @@ static bool sendBlock(const ImageBytes &byteAt, size_t imgLen, uint8_t blockId) 
 
 // Send `imgLen` bytes as data type 0x20 (BW) / 0x21 (BWR) / 0x30 (compressed).
 static bool sendData(const ImageBytes &byteAt, size_t imgLen, uint8_t dataType) {
-  uint32_t ver = crc32(byteAt, imgLen);
+  uint32_t ver = dataVersion(byteAt, imgLen);
   // AvailDataInfo: checksum u8, dataVer u64, dataSize u32, dataType u8, dataTypeArg u8, nextCheckIn u16
   uint8_t info[17] = {0};
   info[0] = 0xFF;
