@@ -15,7 +15,7 @@ if (args.length > 3 && args.at(-1).startsWith('hid=')) {
 const [mode, W, H, ...a] = args;
 const blk = new Plane(+W, +H), red = new Plane(+W, +H);
 if (mode === 'stats') {
-  renderStats({ name: a[0] ?? 'ATC_9B0442', mv: +(a[1] ?? 3030), boardC: +(a[2] ?? 14), screenC: +(a[3] ?? 18),
+  renderStats({ name: a[0] ?? 'ATC_123456', mv: +(a[1] ?? 3030), boardC: +(a[2] ?? 14), screenC: +(a[3] ?? 18),
     updated: a[4] ?? '14:37' }, blk, red, true, hid);
 } else renderSpec(a[0], blk, red, true, hid);
 let s = '';

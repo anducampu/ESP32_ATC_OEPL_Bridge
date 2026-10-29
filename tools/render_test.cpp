@@ -31,7 +31,7 @@ int main(int argc, char **argv) {
   Canvas blk(W, H), red(W, H);
   if (!strcmp(argv[1], "stats")) {
     Stats s;
-    s.name = argc > 4 ? argv[4] : "ATC_9B0442";
+    s.name = argc > 4 ? argv[4] : "ATC_123456";
     s.mv = argc > 5 ? atoi(argv[5]) : 3030;
     s.boardC = argc > 6 ? atoi(argv[6]) : 14;
     s.screenC = argc > 7 ? atoi(argv[7]) : 18;

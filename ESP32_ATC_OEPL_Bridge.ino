@@ -28,13 +28,13 @@
  *
  * Serial commands (one per line):
  *   scan                       list ATC tags nearby
- *   target <name|mac>          set default tag (saved in flash), e.g. target ATC_583740
+ *   target <name|mac>          set default tag (saved in flash), e.g. target ATC_123456
  *   info [name|mac]            connect and print display info
  *   img <name|mac|-> <len>     receive <len> raw buffer bytes (web page upload), then send them
  *   imgz <name|mac|-> <len>    same for an already compressed payload (data type 0x30, what the web
  *                              page sends: a 5.83" picture needs no 76 KB buffer on the ESP32)
  *   rot <name> <0-3>           per-tag extra rotation, clockwise quarter turns (saved), e.g.
- *                              rot ATC_448A42 1   — rot <name> alone shows the current value
+ *                              rot ATC_654321 1   — rot <name> alone shows the current value
  *   send <spec>                render and upload to the target
  *   to <name|mac> <spec>       same, for a specific tag
  *   stats <name|mac|->         read battery + temperatures, upload the stats screen
@@ -418,7 +418,7 @@ static bool uploadImage(const ImageBytes &byteAt, size_t imgLen, bool color, con
 // ---------------------------------------------------------------- drawing → tag
 
 // Per-tag rotation (clockwise quarter turns of the drawn text), stored in NVS as "r_" + the last 6 hex
-// digits of the name or MAC: ATC_9B0442 and 34:66:50:9b:04:42 share "r_9B0442", and the key stays
+// digits of the name or MAC: ATC_123456 and aa:bb:cc:12:34:56 share "r_123456", and the key stays
 // within NVS's 15 characters. Older versions used "r_<name>": still read, removed on the next rot.
 static String rotKey(const String &tag) {
   String hex;

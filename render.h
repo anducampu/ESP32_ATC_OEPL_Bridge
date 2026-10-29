@@ -241,7 +241,7 @@ static void renderSpecArea(const std::string &spec, C &blk, C &red, bool hasRed)
 // ---------------------------------------------------------------- stats screen
 
 struct Stats {
-  std::string name;      // e.g. ATC_9B0442 (ASCII)
+  std::string name;      // e.g. ATC_123456 (ASCII)
   int mv = -1;           // battery millivolts, -1 unknown
   int boardC = -999;     // chip temperature °C, -999 unknown
   int screenC = -999;    // panel temperature °C, -999 unknown
